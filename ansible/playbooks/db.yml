@@ -1,0 +1,56 @@
+---
+- name: Setup MongoDB Server
+  hosts: db
+  become: yes
+
+  tasks:
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install required packages
+      apt:
+        name:
+          - gnupg
+          - curl
+        state: present
+
+    - name: Import MongoDB GPG key
+      shell: |
+        curl -fsSL https://pgp.mongodb.com/server-6.0.asc | \
+        gpg -o /usr/share/keyrings/mongodb-server-6.0.gpg --dearmor
+      args:
+        creates: /usr/share/keyrings/mongodb-server-6.0.gpg
+
+    - name: Add MongoDB repository
+      copy:
+        dest: /etc/apt/sources.list.d/mongodb-org-6.0.list
+        content: |
+          deb [ arch=amd64 signed-by=/usr/share/keyrings/mongodb-server-6.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/6.0 multiverse
+
+    - name: Update apt cache again
+      apt:
+        update_cache: yes
+
+    - name: Install MongoDB
+      apt:
+        name: mongodb-org
+        state: present
+
+    - name: Start MongoDB
+      systemd:
+        name: mongod
+        state: started
+        enabled: yes
+
+    - name: Allow remote access in MongoDB config
+      replace:
+        path: /etc/mongod.conf
+        regexp: '^  bindIp: 127.0.0.1'
+        replace: '  bindIp: 0.0.0.0'
+
+    - name: Restart MongoDB
+      systemd:
+        name: mongod
+        state: restarted

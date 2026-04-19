@@ -1,0 +1,124 @@
+---
+- name: Setup Web Server
+  hosts: web
+  become: yes
+
+  vars:
+    app_dir: /home/ubuntu/app
+    frontend_dir: "{{ app_dir }}/frontend"
+    backend_dir: "{{ app_dir }}/backend"
+    mongo_url: "mongodb://10.1.2.44:27017/travelmemory"
+
+  tasks:
+
+    # ================= BASIC SETUP =================
+
+    - name: Install required packages
+      apt:
+        name:
+          - curl
+          - git
+        state: present
+
+    - name: Add NodeSource repo
+      shell: curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+      args:
+        executable: /bin/bash
+
+    - name: Install Node.js
+      apt:
+        name: nodejs
+        state: present
+
+    # ================= CLONE CODE =================
+
+    - name: Clone Repository
+      git:
+        repo: "https://github.com/PriyankP2/TravelMemoryMernApp.git"
+        dest: "{{ app_dir }}"
+        force: yes
+
+    - name: Set ownership to ubuntu
+      file:
+        path: "{{ app_dir }}"
+        owner: ubuntu
+        group: ubuntu
+        recurse: yes
+
+    # ================= PM2 SETUP =================
+
+    - name: Install PM2 globally
+      npm:
+        name: pm2
+        global: yes
+
+    # ================= BACKEND =================
+
+    - name: Create backend .env file
+      copy:
+        dest: "{{ backend_dir }}/.env"
+        content: |
+          MONGO_URL={{ mongo_url }}
+          PORT=3001
+      become_user: ubuntu
+
+    - name: Install Backend Dependencies
+      command: npm install
+      args:
+        chdir: "{{ backend_dir }}"
+      become_user: ubuntu
+
+    - name: Stop existing backend (if any)
+      command: pm2 delete backend
+      ignore_errors: yes
+      become_user: ubuntu
+
+    - name: Start Backend
+      command: pm2 start index.js --name backend
+      args:
+        chdir: "{{ backend_dir }}"
+      become_user: ubuntu
+
+    # ================= FRONTEND =================
+
+    - name: Install Frontend Dependencies
+      command: npm install
+      args:
+        chdir: "{{ frontend_dir }}"
+      become_user: ubuntu
+
+    - name: Create frontend .env file
+      copy:
+        dest: "{{ frontend_dir }}/.env"
+        content: |
+          REACT_APP_API_URL=http://localhost:3001
+      become_user: ubuntu
+
+    - name: Build Frontend
+      command: npm run build
+      args:
+        chdir: "{{ frontend_dir }}"
+      become_user: ubuntu
+
+    - name: Install serve globally
+      npm:
+        name: serve
+        global: yes
+
+    - name: Stop existing frontend (if any)
+      command: pm2 delete frontend
+      ignore_errors: yes
+      become_user: ubuntu
+
+    - name: Start Frontend
+      command: pm2 start npx --name frontend -- serve -s {{ frontend_dir }}/build -l 3000
+      become_user: ubuntu
+
+    # ================= PM2 SAVE =================
+
+    - name: Save PM2 process list
+      command: pm2 save
+      become_user: ubuntu
+
+    - name: Setup PM2 startup
+      command: pm2 startup systemd -u ubuntu --hp /home/ubuntu
